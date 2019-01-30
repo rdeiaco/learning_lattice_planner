@@ -2,7 +2,7 @@ module Geometry
 
 using PyPlot, Constants, LatticeState, PolynomialSpiral
 
-export getMaxLineSegmentDistance, sampleSpiral, sampleStraightAway, fTheta, fKappa
+export getMaxLineSegmentDistance, sampleSpiral, sampleStraightAway, fTheta, fKappa, mengerCurvature
 
 # Calculates the maximum distance between two
 # line segements while moving along both at the
@@ -27,6 +27,7 @@ end
 # using the Trapezoidal rule. 
 function sampleSpiral(coefficients::Array{Float64}, ti::Float64, xi::Float64=0.0, yi::Float64=0.0)
   path::Array{Float64, 1} = Array{Float64, 1}()
+  curvature_vals::Array{Float64, 1} = Array{Float64, 1}()
 
   steps::Int64 = trunc(ceil(1.0 / ARC_LENGTH_RESOLUTION))
 
@@ -34,7 +35,9 @@ function sampleSpiral(coefficients::Array{Float64}, ti::Float64, xi::Float64=0.0
   theta_start::Float64 = fTheta(coefficients, s_start, ti)
   line_segment_count::Int64 = 0
 
+  # Append the start point of the path.
   append!(path, [xi, yi, theta_start])
+  push!(curvature_vals, fKappa(coefficients, 0.0))
 
   deltax1::Float64 = 0.0
   deltay1::Float64 = 0.0
@@ -61,19 +64,21 @@ function sampleSpiral(coefficients::Array{Float64}, ti::Float64, xi::Float64=0.0
     
     if (s2 - s1) > PATH_RESOLUTION
       append!(path, [x2, y2, theta2])
+      push!(curvature_vals, fKappa(coefficients, s2))
       s_start = s2
       theta_start = theta2
       line_segment_count += 1
     elseif i == steps
       if (s2 - s1) > (PATH_RESOLUTION / 2.0)
         append!(path, [x2, y2, theta2])
+        push!(curvature_vals, fKappa(coefficients, s2))
         line_segment_count += 1
       end
     end
 
   end
 
-  return (permutedims(reshape(path, 3, :), [2, 1]), line_segment_count)
+  return (permutedims(reshape(path, 3, :), [2, 1]), line_segment_count, curvature_vals)
 
 end
 
@@ -101,6 +106,41 @@ end
 # Evaluates curvature at a given arc length along the spiral.
 function fKappa(coefficients::Array{Float64}, s::Float64)::Float64
   return coefficients[1] + coefficients[2] * s + coefficients[3] * s^2 + coefficients[4] * s^3
+
+end
+
+# Does a 3-point estimate of menger curvature.
+function mengerCurvature(p1, p2, p3)
+  delta_x = p2[1] - p1[1]
+  delta_y = p2[2] - p1[2]
+  
+  a = sqrt(delta_x*delta_x + delta_y*delta_y)
+
+  delta_x = p3[1] - p2[1]
+  delta_y = p3[2] - p2[2]
+  b = sqrt(delta_x*delta_x + delta_y*delta_y)
+
+  delta_x = p1[1] - p3[1]
+  delta_y = p1[2] - p3[2]
+  c = sqrt(delta_x*delta_x + delta_y*delta_y)
+
+  if a < 1e-5 || b < 1e-5 || c < 1e-5
+    return 0.0
+  end
+
+  s = (a + b + c) / 2.0 
+
+  K = sqrt(abs(s * (s - a) * (s - b) * (s - c)))
+
+  curvature = 4 * K / (a * b * c)
+
+  rotate_direction = (p2[1] - p1[1]) * (p3[2] - p2[2]) - (p2[2] - p1[2]) * (p3[1] - p2[1])
+
+  if rotate_direction < 0.0
+    curvature = -curvature
+  end
+
+  return curvature
 
 end
 

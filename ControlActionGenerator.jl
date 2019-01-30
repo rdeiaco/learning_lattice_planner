@@ -6,7 +6,7 @@ export generateControlActions
 
 # Generates the lookup table for the control actions
 # of the lattice.
-function generateControlActions()::Array{Dict{UInt128, SpiralControlAction}}
+function generateControlActions(kmax=0.5)::Array{Dict{UInt128, SpiralControlAction}}
   @printf("Control Action LUT not present. Rebuilding...\n")
 
   # Add a lookup table for each index in the initial angle array.
@@ -40,7 +40,7 @@ function generateControlActions()::Array{Dict{UInt128, SpiralControlAction}}
         
         for tf in TF_RANGE
           # Assume zero initial and final curvature to simplify the problem.
-          action = SpiralControlAction(xf, yf, ti, tf, 0.0, 0.0)
+          action = SpiralControlAction(xf, yf, ti, tf, 0.0, 0.0, kmax)
 
           # Due to discretization rounding, it may be possible for there
           # to be duplicates.
@@ -72,7 +72,7 @@ function generateControlActions()::Array{Dict{UInt128, SpiralControlAction}}
     yf = Y_BASE_RANGE[i]
     ti = TI_RANGE[i]
     tf = TI_RANGE[i]
-    action = SpiralControlAction(xf, yf, ti, tf, 0.0, 0.0)
+    action = SpiralControlAction(xf, yf, ti, tf, 0.0, 0.0, kmax)
 
     if !action.feasible
       @printf("Basic Control (%f, %f, %f, %f) is not feasible.\n", xf, yf, ti, tf)

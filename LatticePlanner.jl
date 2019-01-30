@@ -1,11 +1,9 @@
 module LatticePlanner
 
-using LatticeState, PolynomialSpiral
+using Constants, LatticeState, Geometry, Utils, 
+DataStructures, LatticeOccupancyGrid, PolynomialSpiral
 
-using Constants, LatticeState, PolynomialSpiral, Geometry, Utils, 
-DataStructures, LatticeOccupancyGrid
-
-export planPath, heuristicCost, getResultScores
+export planPath, heuristicCost, getResultScores, getPathFromControlActions
 
 # Given a control action look up table, a heuristic look up table, 
 # a swath look up table, and an occupancy grid, finds the optimal 
@@ -50,7 +48,7 @@ function planPath(control_action_lut::Array{Dict{UInt128, SpiralControlAction}},
 
   # A* loop over the opened states.
   while !isempty(min_state_heap)
-    @printf("\rHeap Count = %d     ", heap_count)
+    #@printf("\rHeap Count = %d     ", heap_count)
   
     # Get the next node to expand and its cost. 
     u_id::UInt128 = dequeue!(min_state_heap)
@@ -259,5 +257,33 @@ function getResultScores(planned_path::Array{UInt128}, control_action_lut::Array
   return (dist_score, goal_score, bending_energy_score)
 
 end 
+
+function getPathFromControlActions(planned_path::Array{UInt128}, control_action_lut::Array{Dict{UInt128, SpiralControlAction}})
+    # Start off as 1D, convert to 2D.
+    points::Array{Float64} = [0.0, 0.0]
+    endpoint_state = State(0.0, 0.0, 0.0, 0.0, 0)
+    
+    point_count::Int64 = 0
+    for control_id in planned_path
+      ti_mod::Float64 = endpoint_state.theta % (pi / 2.0)
+      ti_index = getClosestIndex(ti_mod, TI_RANGE)
+      control_action::SpiralControlAction = control_action_lut[ti_index][control_id]
+      delta_theta = endpoint_state.theta - control_action.ti
+  
+      # Skip the first point to avoid duplicates
+      for i = 2:size(control_action.path, 1)
+        point = transformControlActionPoint(control_action, endpoint_state, i)
+        append!(points, point)
+      end
+  
+      endpoint_state = transformControlActionEnd(control_action, delta_theta, endpoint_state.x, endpoint_state.y, 0)  
+  
+    end
+  
+    path::Array{Float64, 2} = permutedims(reshape(points, 2, :), [2, 1])
+
+    return path
+
+end
 
 end # module

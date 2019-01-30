@@ -39,7 +39,7 @@ function generateHLUT(control_action_lut::Array{Dict{UInt128,
     
     # Dijkstra's loop over the opened states.
     while !isempty(min_state_heap) 
-      @printf("\rHeap Count = %d     ", heap_count)
+      #@printf("\rHeap Count = %d     ", heap_count)
     
       # Get the next node to expand and its cost. 
       d_u::Float64 = peek(min_state_heap).second 

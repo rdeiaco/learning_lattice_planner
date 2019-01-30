@@ -15,19 +15,20 @@ struct SpiralControlAction
   kf::Float64
   coefficients::Array{Float64}
   path::Array{Float64, 2}
+  curvature_vals::Array{Float64}
   line_segment_count::Int64
   feasible::Bool
   arc_length::Float64
   bending_energy::Float64
 
   function SpiralControlAction(xf::Float64, yf::Float64, ti::Float64, tf::Float64,
-    ki::Float64, kf::Float64)
+    ki::Float64, kf::Float64, kmax::Float64=0.5)
 
     ti = wrapTo2Pi(ti)
     tf = wrapTo2Pi(tf)
     
 
-    opt_result = optimizeSpiral(xf, yf, ti, tf, ki, kf)
+    opt_result = optimizeSpiral(xf, yf, ti, tf, ki, kf, kmax)
     params = opt_result[1]
     if (opt_result[2] == :Optimal) || (opt_result[2] == :UserLimit)
       feasible = true
@@ -37,19 +38,24 @@ struct SpiralControlAction
       show(opt_result)
       @printf("\n")
     end
+
+    # If the path is too long, it looped back onto itself, and is not relevant.
+    straight_line_norm = norm([xf, yf])
+    if params[5] > 1.5*straight_line_norm
+      feasible = false
+    end
   
     bending_energy::Float64 = fbe(params...)      
     coefficients = getSpiralCoefficients(params)
     path_vals = sampleSpiral(coefficients, ti)
     path = path_vals[1]
     line_segment_count = path_vals[2]
+    curvature_vals = path_vals[3]
 
     s_f::Float64 = params[5]
     t_f::Float64 = fTheta(coefficients, s_f, ti)
     x_f::Float64 = xSimpson(params...)
     y_f::Float64 = ySimpson(params...)
-
-
 
     x_f_rotated::Float64 = x_f*cos(ti) - y_f*sin(ti)
     y_f_rotated::Float64 = x_f*sin(ti) + y_f*cos(ti)
@@ -60,16 +66,16 @@ struct SpiralControlAction
       feasible = false
     end
 
-    new(xf, yf, wrapTo2Pi(ti), wrapTo2Pi(tf), ki, kf, coefficients, path, line_segment_count, feasible, s_f, bending_energy)
+    new(xf, yf, wrapTo2Pi(ti), wrapTo2Pi(tf), ki, kf, coefficients, path, curvature_vals, line_segment_count, feasible, s_f, bending_energy)
 
   end
 
 end
 
-function optimizeSpiral(xf::Float64, yf::Float64, ti::Float64, tf::Float64, ki::Float64, kf::Float64)
+function optimizeSpiral(xf::Float64, yf::Float64, ti::Float64, tf::Float64, ki::Float64, kf::Float64, kmax::Float64=0.5)
   
   m = Model(solver=IpoptSolver(print_level=0, max_iter=3000))
-  JuMP.register(m, :objective, 6, objective, objectiveGrad)
+  JuMP.register(m, :objective, 8, objective, objectiveGrad)
 
   # The optimization functions assume that the initial angle is zero.
   # Therefore, we need to rotate the boundary conditions such that this
@@ -84,28 +90,24 @@ function optimizeSpiral(xf::Float64, yf::Float64, ti::Float64, tf::Float64, ki::
   # 1/3rd of the way through the curve, 2/3rds
   # of the way through the curve, and the final
   # arc length of the curve, respectively.
-  @variable(m, -0.5 <= p1 <= 0.5)
-  @variable(m, -0.5 <= p2 <= 0.5)
-  @variable(m, straight_line_norm <= p4 <= 100.0)
+  @variable(m, -kmax <= p1 <= kmax)
+  @variable(m, -kmax <= p2 <= kmax)
+  @variable(m, straight_line_norm <= p4 <= 20.0)
   @variable(m, x == xf_rotated)
   @variable(m, y == yf_rotated)
   @variable(m, t == tf_rotated)
-  @NLobjective(m, Min, objective(p1, p2, p4, x, y, t))
+  @variable(m, p0 == ki)
+  @variable(m, p3 == kf)
+  @NLobjective(m, Min, objective(p0, p1, p2, p3, p4, x, y, t))
 
   status = solve(m)
-  params::Array{Float64} = [0.0, getvalue(p1), getvalue(p2), 0.0, getvalue(p4)]
+  params::Array{Float64} = [getValue(p0), getvalue(p1), getvalue(p2), getValue(p3), getvalue(p4)]
 
   return (params, status)
 
 end
 
-function objective(p1::Float64, p2::Float64, p4::Float64, xf::Float64, yf::Float64, tf::Float64)
-  # p0 is the initial curvature of the curve.
-  p0::Float64 = 0.0
-  # p3 is the final curvature of the curve.
-  p3::Float64 = 0.0
-  t1::Float64 = 2.0
-  t2::Float64 = 4.0
+function objective(p0::Float64, p1::Float64, p2::Float64, p3::Float64, p4::Float64, xf::Float64, yf::Float64, tf::Float64)
 
   cost = 25.0*fxf(p0, p1, p2, p3, p4, xf) + 25.0*fyf(p0, p1, p2, p3, p4, yf) + 30.0*ftf(p0, p1, p2, p3, p4, tf) + fbe(p0, p1, p2, p3, p4)
 
@@ -223,19 +225,18 @@ function ySimpson(p0::Float64, p1::Float64, p2::Float64, p3::Float64, p4::Float6
 end
 
 # Calculates the gradient of the objective for the optimizer.
-function objectiveGrad(g, p1::Float64, p2::Float64, p4::Float64, xf::Float64, yf::Float64, tf::Float64)
-  # p0 is the initial curvature of the curve.
-  p0::Float64 = 0.0
-  # p3 is the final curvature of the curve.
-  p3::Float64 = 0.0
-
-  g[1] = 25.0*dxdp1(p0, p1, p2, p3, p4, xf) + 25.0*dydp1(p0, p1, p2, p3, p4, yf) + 30.0*dtdp1(p0, p1, p2, p3, p4, tf) + dbedp1(p0, p1, p2, p3, p4)
-  g[2] = 25.0*dxdp2(p0, p1, p2, p3, p4, xf) + 25.0*dydp2(p0, p1, p2, p3, p4, yf) + 30.0*dtdp2(p0, p1, p2, p3, p4, tf) + dbedp2(p0, p1, p2, p3, p4)
-  g[3] = 25.0*dxdp4(p0, p1, p2, p3, p4, xf) + 25.0*dydp4(p0, p1, p2, p3, p4, yf) + 30.0*dtdp4(p0, p1, p2, p3, p4, tf) + dbedp4(p0, p1, p2, p3, p4)
-  # The final 3 terms are constants (from the boundary conditions).
+function objectiveGrad(g, p0::Float64, p1::Float64, p2::Float64, p3::Float64, p4::Float64, xf::Float64, yf::Float64, tf::Float64)
+  # p0, the initial curvature, is constant.
+  g[1] = 0.0
+  g[2] = 25.0*dxdp1(p0, p1, p2, p3, p4, xf) + 25.0*dydp1(p0, p1, p2, p3, p4, yf) + 30.0*dtdp1(p0, p1, p2, p3, p4, tf) + dbedp1(p0, p1, p2, p3, p4)
+  g[3] = 25.0*dxdp2(p0, p1, p2, p3, p4, xf) + 25.0*dydp2(p0, p1, p2, p3, p4, yf) + 30.0*dtdp2(p0, p1, p2, p3, p4, tf) + dbedp2(p0, p1, p2, p3, p4)
+  # p3, the final curvature, is constant.
   g[4] = 0.0
-  g[5] = 0.0
+  g[5] = 25.0*dxdp4(p0, p1, p2, p3, p4, xf) + 25.0*dydp4(p0, p1, p2, p3, p4, yf) + 30.0*dtdp4(p0, p1, p2, p3, p4, tf) + dbedp4(p0, p1, p2, p3, p4)
+  # The final 3 terms are constants (from the boundary conditions).
   g[6] = 0.0
+  g[7] = 0.0
+  g[8] = 0.0
 
 end
 

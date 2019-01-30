@@ -40,14 +40,21 @@ end
 
 # Constructs the lane bounds from the centerline.
 function generateLaneBounds(path_vals::Array{Float64, 2}, lane_change::Bool=false,
-  left_lane::Bool=true, lane_change_index::Int64=10)::Tuple{Array{Float64, 2}, 
+  left_lane::Bool=true, lane_change_index::Int64=10, return_to_lane::Bool=false, truncate_path::Bool=false)::Tuple{Array{Float64, 2}, 
   Array{Float64, 2}, Array{Float64, 2}, State}
   left_bound::Array{Float64, 1} = Array{Float64, 1}()
   right_bound::Array{Float64, 1} = Array{Float64, 1}()
   
   goal_index::UInt64 = 0
 
-  for i = 1:size(path_vals, 1)
+  # Truncate the path to be smaller if this flag is set.
+  if truncate_path
+    path_size = min(size(path_vals, 1), LANE_LENGTH/PATH_RESOLUTION)
+  else
+    path_size = size(path_vals, 1)
+  end
+
+  for i = 1:path_size
     point = path_vals[i, :]
  
     x_left::Float64 = 0.0
@@ -55,7 +62,8 @@ function generateLaneBounds(path_vals::Array{Float64, 2}, lane_change::Bool=fals
     x_right::Float64 = 0.0
     y_right::Float64 = 0.0
 
-    if lane_change && left_lane && (i >= lane_change_index)
+    #if lane_change && left_lane && (i >= lane_change_index)
+    if lane_change && left_lane
       x_left = point[1] + 1.5 * LANE_WIDTH * cos(point[3] + pi/2)
       y_left = point[2] + 1.5 * LANE_WIDTH * sin(point[3] + pi/2)
     else
@@ -63,7 +71,8 @@ function generateLaneBounds(path_vals::Array{Float64, 2}, lane_change::Bool=fals
       y_left = point[2] + 0.5 * LANE_WIDTH * sin(point[3] + pi/2)
     end
 
-    if lane_change && !left_lane && (i >= lane_change_index)
+    #if lane_change && !left_lane && (i >= lane_change_index)
+    if lane_change && !left_lane
       x_right = point[1] + 1.5 * LANE_WIDTH * cos(point[3] - pi/2) 
       y_right = point[2] + 1.5 * LANE_WIDTH * sin(point[3] - pi/2) 
     else
@@ -89,22 +98,33 @@ function generateLaneBounds(path_vals::Array{Float64, 2}, lane_change::Bool=fals
 
   end
 
-  if lane_change && left_lane
+  # Goal state should be in the original lane.
+  if return_to_lane
+    goal_state = State(path_vals[goal_index, 1],
+      path_vals[goal_index, 2],
+      path_vals[goal_index, 3],
+      0.0, 0)
+  # Goal state should be in the left lane.
+  elseif lane_change && left_lane
     goal_state = State(path_vals[goal_index, 1] + LANE_WIDTH * cos(path_vals[goal_index, 3] + pi/2),
       path_vals[goal_index, 2] + LANE_WIDTH * sin(path_vals[goal_index, 3] + pi/2),
       path_vals[goal_index, 3],
       0.0, 0)
-  elseif lane_change && right_lane
+  # Goal state should be in the right lane.
+  elseif lane_change && !left_lane
     goal_state = State(path_vals[goal_index, 1] + LANE_WIDTH * cos(path_vals[goal_index, 3] - pi/2),
       path_vals[goal_index, 2] + LANE_WIDTH * sin(path_vals[goal_index, 3] - pi/2),
       path_vals[goal_index, 3],
       0.0, 0)
+  # Otherwise, goal state is the end of the centerline.
   else
     goal_state = State(path_vals[goal_index, 1],
       path_vals[goal_index, 2],
       path_vals[goal_index, 3],
       0.0, 0)
   end
+
+  
 
   return (permutedims(reshape(left_bound, 2, :), [2 1]), permutedims(reshape(right_bound, 2, :), [2 1]), path_vals[1:goal_index, :], goal_state)
 

@@ -21,7 +21,24 @@ function generateSwaths(control_action_lut::Array{Dict{UInt128, SpiralControlAct
           while y_offset < CAR_WIDTH / 2.0
             x_point::Float64 = point[1] + cos(point[3]) * x_offset - sin(point[3]) * y_offset
             y_point::Float64 = point[2] + sin(point[3]) * x_offset + cos(point[3]) * y_offset
-            indices::Tuple{UInt64, UInt64} = getGridIndices([x_point, y_point])
+
+            local indices::Tuple{UInt64, UInt64}
+            try
+              indices = getGridIndices([x_point, y_point])
+            catch
+              @printf("Violation x = %f, y = %f\n", x_point, y_point)
+              show(control_action.xf)
+              @printf("\n")
+              show(control_action.yf)
+              @printf("\n")
+              show(control_action.ti)
+              @printf("\n")
+              show(control_action.tf)
+              @printf("\n")
+              show(control_action.kmax)
+              @printf("\n")
+              exit()
+            end
             
             push!(swath, indices)
             
@@ -75,11 +92,22 @@ function generateSwathFromPath(path::Array{Float64, 2})::Set{Tuple{UInt64, UInt6
       while y_offset < CAR_WIDTH / 2.0
         x_point::Float64 = point[1] + cos(point[3]) * x_offset - sin(point[3]) * y_offset
         y_point::Float64 = point[2] + sin(point[3]) * x_offset + cos(point[3]) * y_offset
+
+        #local indices::Tuple{UInt64, UInt64}
+        #try
+        #  indices = getGridIndices([x_point, y_point])
+        #catch
+        #  @printf("Indices went out of bounds.\n")
+        #  y_offset += GRID_RESOLUTION
+        #  continue
+        #end
+
         indices::Tuple{UInt64, UInt64} = getGridIndices([x_point, y_point])
         
         push!(swath, indices)
         
         y_offset += GRID_RESOLUTION
+
       end
       x_offset += GRID_RESOLUTION
     end

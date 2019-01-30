@@ -1,10 +1,10 @@
-module OptimizationPlanner
+module DubinsPlanner
 
-using Constants, PolynomialSpiral, Geometry, SwathGenerator, LatticeOccupancyGrid, LatticeVisualizer
+using Constants, DubinsPath, Geometry, SwathGenerator, LatticeOccupancyGrid, LatticeVisualizer
 
-export planOptimizerPath
+export planDubinsPath
 
-function planOptimizerPath(center_line::Array{Float64, 2}, occupancy_grid::OccupancyGrid, max_curvature::Float64=0.5, lookahead::Float64=10.0)
+function planDubinsPath(center_line::Array{Float64, 2}, occupancy_grid::OccupancyGrid, max_curvature::Float64=0.5, lookahead::Float64=10.0)
   car_position = [0.0, 0.0, 0.0]
   car_curvature = 0.0
   # Add the initial state.
@@ -35,24 +35,19 @@ function planOptimizerPath(center_line::Array{Float64, 2}, occupancy_grid::Occup
     curvature_vals_list::Array{Array{Float64}} = Array{Array{Float64}}(size(goal_state_array_local, 1))
 
     for i = 1:size(goal_state_array_local, 1)
-      # Calculate the spiral path. Assume final curvature is zero, want to end on a straight
+      # Calculate the Dubins path. Assume final curvature is zero, want to end on a straight
       # line if possible.
-      opt_result = optimizeSpiral(goal_state_array_local[i][1], goal_state_array_local[i][2],
+      dubins_action = DubinsAction(goal_state_array_local[i][1], goal_state_array_local[i][2],
         0.0, goal_state_array_local[i][3], car_curvature, 0.0, max_curvature)
-      if (opt_result[2] == :Optimal) || (opt_result[2] == :UserLimit)
-        feasible = true
-      else
-        feasible = false
-        @printf("Opt result = ")
-        show(opt_result)
+      if dubins_action.feasible == false
+        @printf("Action was infeasible.")
         @printf("\n")
         return
       end
    
-      # Get the path formed by the spiral in the local frame. 
-      sample_results = sampleSpiral(getSpiralCoefficients(opt_result[1]), 0.0)
-      path_local::Array{Float64, 2} = sample_results[1]
-      curvature_vals::Array{Float64} = sample_results[3]
+      # Get the path formed by the Dubins path in the local frame. 
+      path_local::Array{Float64, 2} = dubins_action.path
+      curvature_vals::Array{Float64} = dubins_action.curvature_vals
 
       # Convert the path to the global frame.
       path::Array{Float64, 2} = Array{Float64, 2}(size(path_local))
@@ -87,6 +82,7 @@ function planOptimizerPath(center_line::Array{Float64, 2}, occupancy_grid::Occup
         best_index = i
         best_score = total_score 
         best_path = path
+        best_curvatures = curvature_vals
         best_swath = swath
       end
 
@@ -101,9 +97,7 @@ function planOptimizerPath(center_line::Array{Float64, 2}, occupancy_grid::Occup
     if (best_index > 1) && (best_index < size(goal_state_array_local, 1))
       if (collision_scores[best_index+1] == Inf) && (collision_scores[best_index-1] != Inf)
         best_index = best_index - 1
-      end
-
-      if (collision_scores[best_index-1] == Inf) && (collision_scores[best_index+1] != Inf)
+      elseif (collision_scores[best_index-1] == Inf) && (collision_scores[best_index+1] != Inf)
         best_index = best_index + 1
       end
 
@@ -253,4 +247,5 @@ function moveCar(output_path::Array{Float64}, output_curvatures::Array{Float64},
 
 end
 
-end # module
+
+end #module
