@@ -5,8 +5,8 @@ using ClusterExperiment, SpiralExperiment
 function main()
 
   # Guided clustered search.
-  @printf("Running clustered search with non-rotated paths.\n")
-  spiralExperiment1(true, true, false)
+#  @printf("Running clustered search with non-rotated paths.\n")
+#  spiralExperiment1(true, true, false)
   
 #  @printf("Running clustered search with non-rotated paths, with lane change.\n")
 #  spiralExperiment2(true, true, false)
